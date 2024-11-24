@@ -1,72 +1,200 @@
-    import pandas as pd
-    import numpy as np
-    from datetime import datetime, timedelta
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.linear_model import LinearRegression
-    from sklearn.metrics import mean_squared_error
-    import math
-    
-    def load_and_preprocess_data(filepath):
-        try:
-            # Attempt to read the file with UTF-8 encoding
-            data = pd.read_csv(filepath, encoding='utf-8')
-        except UnicodeDecodeError:
-            # If UTF-8 fails, try reading with ISO-8859-1
-            data = pd.read_csv(filepath, encoding='ISO-8859-1')
-        except FileNotFoundError:
-            print(f"Error: The file {filepath} was not found.")
-            return None
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return None
-        
-        # Fill missing values and convert dates
-        data.fillna(method='ffill', inplace=True)
-        data['Date'] = pd.to_datetime(data['Date'])
-        data['Year'] = data['Date'].dt.year
-        data['Month'] = data['Date'].dt.month
-        data['Day'] = data['Date'].dt.day
-        
-        # Convert categorical data to numerical using one-hot encoding
-        data = pd.get_dummies(data, columns=['Advertising'])
-        return data
-    
-    def prepare_features(data):
-        if data is None:
-            return None, None
-        # Select features and target variable
-        X = data[['Year', 'Month', 'Day', 'Price', 'Advertising_High', 'Advertising_Low', 'Advertising_Medium']]
-        y = data['Sales']
-        return X, y
-    
-    def train_model(X_train, y_train):
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
+import pandas as pd
+import numpy as np
+from datetime import datetime
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error
+import math
+import matplotlib.pyplot as plt
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+
+
+# Data processing Area
+def load_and_preprocess_data(filepath):
+    try:
+        data = pd.read_csv(filepath)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to load file: {e}")
+        return None
+
+    # Fill missing values and preprocess
+    data.fillna(method='ffill', inplace=True)
+    data['Date'] = pd.to_datetime(data['Date'], errors='coerce')
+    if data['Date'].isnull().any():
+        messagebox.showerror("Error", "Invalid dates in dataset.")
+        return None
+
+    # Extract year, month, and day
+    data['Year'] = data['Date'].dt.year
+    data['Month'] = data['Date'].dt.month
+    data['Day'] = data['Date'].dt.day
+
+    # Convert categorical features to one-hot encoding
+    if 'Advertising' in data.columns:
+        data = pd.get_dummies(data, columns=['Advertising'], drop_first=True)
+
+    return data
+
+
+def prepare_features(data):
+    if data is None:
+        return None, None
+    # Select features and target variable
+    features = ['Year', 'Month', 'Day', 'Price']
+    features += [col for col in data.columns if 'Advertising_' in col]
+    X = data[features]
+    y = data['Sales']
+    return X, y
+
+
+# Model Training Area 
+def train_model(X_train, y_train, model_type):
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+
+    if model_type == "Linear Regression":
         model = LinearRegression()
-        model.fit(X_train_scaled, y_train)
-        return model, scaler
-    
-    def evaluate_model(model, scaler, X_test, y_test):
-        X_test_scaled = scaler.transform(X_test)
-        y_pred = model.predict(X_test_scaled)
-        mse = mean_squared_error(y_test, y_pred)
-        rmse = math.sqrt(mse)
-        print(f'Mean Squared Error: {mse}')
-        print(f'Root Mean Squared Error: {rmse}')
-    
-    if __name__ == "__main__":
-        filepath = 'C:/path/to/your/sales_data.csv'  # Update with the correct path to your CSV file
+    elif model_type == "Random Forest":
+        model = RandomForestRegressor(random_state=42)
+    elif model_type == "Gradient Boosting":
+        model = GradientBoostingRegressor(random_state=42)
+    else:
+        messagebox.showerror("Error", "Unknown model type selected.")
+        return None, None
+
+    model.fit(X_train_scaled, y_train)
+    return model, scaler
+
+
+def evaluate_model(model, scaler, X_test, y_test):
+    X_test_scaled = scaler.transform(X_test)
+    y_pred = model.predict(X_test_scaled)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = math.sqrt(mse)
+
+    # Display numerical results 
+    messagebox.showinfo("Model Evaluation", f"MSE: {mse:.2f}\nRMSE: {rmse:.2f}")
+
+    # Chart 
+    plot_results(y_test, y_pred)
+
+
+def plot_results(y_test, y_pred):
+    plt.figure(figsize=(10, 6))
+    plt.plot(y_test.values, label="Actual Sales", marker='o', color='blue')
+    plt.plot(y_pred, label="Predicted Sales", marker='x', linestyle='--', color='red')
+    plt.legend()
+    plt.title("Actual vs Predicted Sales")
+    plt.xlabel("Samples")
+    plt.ylabel("Sales")
+    plt.grid()
+
+    # Save chart
+    output_dir = 'output'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    plot_path = os.path.join(output_dir, 'sales_plot.png')
+    plt.savefig(plot_path)
+    plt.show()
+
+    messagebox.showinfo("Plot Saved", f"Plot saved to {plot_path}")
+
+
+# Graphical interface
+def load_file():
+    filepath = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+    if filepath:
+        global data
         data = load_and_preprocess_data(filepath)
         if data is not None:
-            X, y = prepare_features(data)
-            if X is not None and y is not None:
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-                model, scaler = train_model(X_train, y_train)
-                evaluate_model(model, scaler, X_test, y_test)
-            else:
-                print("Feature preparation failed.")
-        else:
-            print("Data loading failed, script will terminate.")
-    
+            messagebox.showinfo("Success", "File loaded and processed successfully!")
+            preview_data()
 
+
+def preview_data():
+    if data is not None:
+        preview_window = tk.Toplevel(root)
+        preview_window.title("Data Preview")
+        frame = ttk.Frame(preview_window)
+        frame.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(frame, columns=list(data.columns), show='headings')
+        for col in data.columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=100)
+
+        # Display liens
+        for index, row in data.head(20).iterrows():
+            tree.insert("", "end", values=list(row))
+        tree.pack(fill="both", expand=True)
+
+
+def run_model():
+    if data is not None:
+        X, y = prepare_features(data)
+        if X is not None and y is not None:
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            model_type = model_selection.get()  
+            # Select a model
+            model, scaler = train_model(X_train, y_train, model_type)
+            if model is not None:
+                evaluate_model(model, scaler, X_test, y_test)
+        else:
+            messagebox.showerror("Error", "Feature preparation failed.")
+    else:
+        messagebox.showerror("Error", "No data loaded. Please load a dataset first.")
+
+
+def update_model_description(event):
+    model_type = model_selection.get()
+    description = model_descriptions.get(model_type, "No description available.")
+    model_description_label.config(text=description)
+
+
+# Start program
+root = tk.Tk()
+root.title("Sales Prediction App")
+
+# Model Description
+model_descriptions = {
+    "Linear Regression": "A simple model for linear relationships between features and target.",
+    "Random Forest": "A robust ensemble model using decision trees.",
+    "Gradient Boosting": "A powerful boosting method for prediction tasks."
+}
+
+# User interface settings
+frame = ttk.Frame(root, padding=10)
+frame.pack(fill="both", expand=True)
+
+# Select a model
+model_selection_label = ttk.Label(frame, text="Select Model:")
+model_selection_label.grid(row=0, column=0, padx=5, pady=5)
+model_selection = ttk.Combobox(frame, values=list(model_descriptions.keys()), state="readonly")
+model_selection.set("Linear Regression")
+model_selection.grid(row=0, column=1, padx=5, pady=5)
+model_selection.bind("<<ComboboxSelected>>", update_model_description)
+
+# Model Description
+model_description_label = ttk.Label(frame, text=model_descriptions["Linear Regression"], wraplength=300, justify="left")
+model_description_label.grid(row=1, column=0, columnspan=2, padx=5, pady=5)
+
+# Buttons
+btn_load = ttk.Button(frame, text="Load Data", command=load_file)
+btn_load.grid(row=2, column=0, padx=5, pady=5)
+
+btn_preview = ttk.Button(frame, text="Preview Data", command=preview_data)
+btn_preview.grid(row=2, column=1, padx=5, pady=5)
+
+btn_run = ttk.Button(frame, text="Run Model", command=run_model)
+btn_run.grid(row=2, column=2, padx=5, pady=5)
+
+btn_exit = ttk.Button(frame, text="Exit", command=root.destroy)
+btn_exit.grid(row=2, column=3, padx=5, pady=5)
+
+root.mainloop()
